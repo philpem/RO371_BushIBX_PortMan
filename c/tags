@@ -36,7 +36,7 @@ struct tag_pair {
     struct bitdef   result;
 };
 
-tag_pair* head_tag = 0;
+static tag_pair* head_tag = 0;
 
 /*
  * Get an integer from *str, updating *str to point to the end.  Returns
@@ -169,6 +169,12 @@ tag_get(struct bitdef *result, const char *name)
   }
 
   return msgfile_error_lookup(&messages, PortMan_NoTag, NoTag, name);
+}
+
+void tag_foreach(void (*fn)(const char *name, struct bitdef bit))
+{
+  for (tag_pair *t = head_tag; t; t = t->next)
+    fn(t->name, t->result);
 }
 
 void tag_close(void)

@@ -69,6 +69,8 @@ static int messages_handle = 0;
 static int tags_handle = 0;
 struct msgfile messages = MSGFILE_INIT;
 
+static _kernel_oserror *modify_bit(int flags, const char *name, int *result);
+
 static enum
 {
     ARM7500FE,
@@ -184,12 +186,80 @@ static _kernel_oserror *cx24430_modify_config(struct bitdef bit, int flags, int 
   return NULL;
 }
 
+#define BUTTON_SET_SIZE 8
+int button_set[BUTTON_SET_SIZE+1] = { -1 };
+
+static void cx24430_note_button(const char *name, struct bitdef bit)
+{
+  if (bit.port != 2 && bit.port != 3) return;
+  int n;
+  for (n = 0; button_set[n] != -1; n++)
+      if (button_set[n] == bit.num) return;
+  if (n < BUTTON_SET_SIZE)
+  {
+    button_set[n] = bit.num;
+    button_set[n+1] = -1;
+  }
+}
+
+static void cx24430_buttons_init(void)
+{
+    /* Make a list of all lines associated with port 2/3 tags. These are
+     * the button scan lines, and all need to be manipulated to read a
+     * button.
+     */
+    tag_foreach(cx24430_note_button);
+    for (int n = 0; button_set[n] != -1; n++)
+        printf("%d\n", button_set[n]);
+}
+
+static _kernel_oserror *cx24430_read_button(struct bitdef bit, int flags, int *result)
+{
+  _kernel_oserror *e;
+  int res;
+  bool old_state[BUTTON_SET_SIZE];
+  int irq_state=_kernel_irqs_disabled();
+
+  _kernel_irqs_off();
+  /* This case is used for buttons on the STB55. Given the tag definition
+   * <n>:<2|3>:0, we drive <n>:0:2 high, all the other scan lines low, then
+   * read either Panel_SW1 or Panel_SW2, then put all scan lines back to their
+   * old output state.
+   * Polarity of read is determined by tag definition of Panel_SW1/2 -
+   * flags are effectively ignored for port 2/3 tags, and should be zero.
+   */
+  for (int n = 0; button_set[n] != -1; n++)
+  {
+    cx24430_modify_pio((struct bitdef) { .num = button_set[n], .port = 0,
+                                         .flags = TAG_FLAGS_OUTPUT },
+                       button_set[n] == bit.num ? PORTMAN_FLAG_SET
+                                                : PORTMAN_FLAG_CLEAR,
+                       &res);
+    old_state[n] = res & 1;
+  }
+  e = modify_bit(0, bit.port == 2 ? "Panel_SW1" : "Panel_SW2", result);
+  for (int n = 0; button_set[n] != -1; n++)
+  {
+    cx24430_modify_pio((struct bitdef) { .num = button_set[n], .port = 0,
+                                         .flags = TAG_FLAGS_OUTPUT },
+                       old_state[n] ? PORTMAN_FLAG_SET
+                                    : PORTMAN_FLAG_CLEAR,
+                       &res);
+  }
+  if(!irq_state)
+    _kernel_irqs_on();
+
+  return e;
+}
+
 static _kernel_oserror *cx24430_modify(struct bitdef bit, int flags, int *result)
 {
   switch (bit.port)
   {
     case 0: return cx24430_modify_pio(bit, flags, result);
     case 1: return cx24430_modify_config(bit, flags, result);
+    case 2:
+    case 3: return cx24430_read_button(bit, flags, result);
     default: *result = 0; return NULL;
   }
 }
@@ -281,6 +351,9 @@ module_initialise(CMHG_CONST char *cmd_tail, int podule_base, void *pw)
 
   e = tag_init();
   if (e) return e;
+
+  if (platform == CX24430)
+    cx24430_buttons_init();
 
   /* We're ready to go.  Set up the callback. */
   regs.r[0]=(int)callback_entry;
