@@ -1,5 +1,5 @@
 Wakeup:         4:0:0
-USB_Error:     25:0:0
+USB_Error:     25:0:1
 Mains_Fail:    27:0:1
 Flash_CS:      30:0:3
 Flash_Ready:   31:0:0
