@@ -209,8 +209,6 @@ static void cx24430_buttons_init(void)
      * button.
      */
     tag_foreach(cx24430_note_button);
-    for (int n = 0; button_set[n] != -1; n++)
-        printf("%d\n", button_set[n]);
 }
 
 static _kernel_oserror *cx24430_read_button(struct bitdef bit, int flags, int *result)

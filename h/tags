@@ -28,5 +28,6 @@ struct bitdef {
 #define TAGS_FILE "Resources:$.Resources.PortMan.Tags"
 
 _kernel_oserror *tag_get(struct bitdef *result, const char *name);
+void tag_foreach(void (*fn)(const char *name, struct bitdef bit));
 _kernel_oserror* tag_init(void);
 void tag_close(void);
