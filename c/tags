@@ -114,32 +114,31 @@ parse_line(struct bitdef *bit, const char *line)
 
   /* Gobble the bit number */
   if(!get_int(&line, &num))
-    return msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
+    return msgfile_error_lookup(&messages, PortMan_BadLine, BadLine);
 
   bit->num=(int)num;
 
   /* Fill in the defaults. */
   bit->flags=0;
+  bit->port=0;
 
   /* Gobble the separator */
   if(!get_sep(&line))
   {
     if(line==NULL)
-      return msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
+      return msgfile_error_lookup(&messages, PortMan_BadLine, BadLine);
     return NULL;
   }
 
   /* Get and check port number */
-  if(get_int(&line, &num) && num!=0)
-  {
-    return msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
-  }
+  if(get_int(&line, &num))
+    bit->port=(int)num;
 
   /* Gobble the separator */
   if(!get_sep(&line))
   {
     if(line==NULL)
-      return msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
+      return msgfile_error_lookup(&messages, PortMan_BadLine, BadLine);
     return NULL;
   }
 
@@ -151,7 +150,7 @@ parse_line(struct bitdef *bit, const char *line)
   get_sep(&line);
 
   if(line==NULL)
-    return msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
+    return msgfile_error_lookup(&messages, PortMan_BadLine, BadLine);
   return NULL;
 }
 
@@ -169,7 +168,7 @@ tag_get(struct bitdef *result, const char *name)
       t = t->next;
   }
 
-  return msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
+  return msgfile_error_lookup(&messages, PortMan_NoTag, NoTag, name);
 }
 
 void tag_close(void)
@@ -205,7 +204,7 @@ _kernel_oserror* tag_init(void)
     if (more) {
       *t = malloc(sizeof **t);
       if (*t == 0) {
-        err = msgfile_error_lookup(&messages, PortMan_BadTag, BadLine);
+        err = msgfile_error_lookup(&messages, PortMan_BadLine, BadLine);
         goto error1;
       }
 

@@ -62,4 +62,5 @@ Error: PortMan SWI mismatch
 
 /* Errors */
 #define ErrorBase_PortMan		0x00816900
-#define PortMan_BadTag			ErrorBase_PortMan
+#define PortMan_BadLine			(ErrorBase_PortMan+0)
+#define PortMan_NoTag			(ErrorBase_PortMan+1)

@@ -17,8 +17,8 @@
 /* Tags file functions */
 
 struct bitdef {
-  int num:5;   /* Which bit in the port */
-//int port:3;  /* Which port */
+  int num:7;   /* Which bit in the port */
+  int port:3;  /* Which port */
   int flags:2; /* Inverted?  Output? */
 };
 

@@ -22,9 +22,11 @@
 /*                                                                      */
 /************************************************************************/
 #include <stdlib.h>
+#include <stdbool.h>
 #include "swis.h"
 #include "Global/Services.h"
 #include "Interface/HighFSI.h"
+#include "Interface/PCI.h"
 
 #ifdef STANDALONE
 #include "saheader.h"
@@ -46,12 +48,32 @@
 
 #define UNUSED(x) ((x)=(x))
 
-#define IOMD_CLINES (*(unsigned int*)0x0320000c)
+#define IOMD_CLINES (*(unsigned int*)0x0320000c)  /* ARM 7500FE */
+#define GPIO_REG_BASE 0x30470000                  /* CX24430 */
+#define PLL_REG_BASE  0x30440000                  /* CX24430 */
 
+#define GPIO_READ       (0x04/4)
+#define GPIO_DRIVE_HIGH (0x08/4)
+#define GPIO_DRIVE_LOW  (0x10/4)
+#define GPIO_DRIVE_OFF  (0x14/4)
+#define GPIO_BANK       (0x30/4)
+
+#define PLL_CONFIG0     (0x20/4)
+
+#define CXPIOREG(b,a) (CXGPIO_Base[GPIO_BANK*(b)+GPIO_##a])
+#define CXPLLREG(a)   (CXPLL_Base[PLL_##a])
+
+static volatile unsigned int *CXGPIO_Base, *CXPLL_Base;
 static int clines_softcopy=0xff;
 static int messages_handle = 0;
 static int tags_handle = 0;
 struct msgfile messages = MSGFILE_INIT;
+
+static enum
+{
+    ARM7500FE,
+    CX24430
+} platform = ARM7500FE;
 
 /**** Utility function **********************************************/
 /* this allows us to find out if the actual data has changed by reading
@@ -99,27 +121,93 @@ static unsigned int modify_clines(unsigned int mask, unsigned int toggle)
   return res;
 }
 
+static _kernel_oserror *arm7500fe_modify(struct bitdef bit, int flags, int *result)
+{
+  if(bit.port == 0)
+  {
+    unsigned int mask=0, toggle=0;
+    unsigned int value;
+    if(bit.flags & TAG_FLAGS_OUTPUT)
+    {
+      mask=flags&PORTMAN_FLAG_CLEAR?1:0;
+      toggle=flags&PORTMAN_FLAG_TOGGLE?1:0;
+      if((flags & PORTMAN_FLAG_CLEAR) && (bit.flags & TAG_FLAGS_INVERTED))
+        toggle^=1;
+    }
+    value=modify_clines(~(mask<<bit.num), toggle<<bit.num) >> bit.num;
+    *result=(value&1) | (((value&!mask)^toggle)<<1);
+  }
+  else
+    *result=0;
+  return NULL;
+}
+
+static _kernel_oserror *cx24430_modify_pio(struct bitdef bit, int flags, int *result)
+{
+  bool clear=0, toggle=0, old, new, newphys;
+  unsigned int bank = bit.num / 32;
+  unsigned int pinbit = 1u << bit.num%32;
+
+  if(bit.flags & TAG_FLAGS_OUTPUT)
+  {
+    old = CXPIOREG(bank,DRIVE_HIGH) & pinbit;
+    if (bit.flags & TAG_FLAGS_INVERTED) old = !old;
+    clear = flags&PORTMAN_FLAG_CLEAR;
+    toggle = flags&PORTMAN_FLAG_TOGGLE;
+    new = (old &~ clear) ^ toggle;
+    newphys = bit.flags & TAG_FLAGS_INVERTED ? !new : new;
+    if (newphys)
+      CXPIOREG(bank,DRIVE_HIGH) = pinbit;
+    else
+      CXPIOREG(bank,DRIVE_LOW) = pinbit;
+  }
+  else
+  {
+    CXPIOREG(bank,DRIVE_OFF) = pinbit;
+    old = CXPIOREG(bank,READ) & pinbit;
+    if (bit.flags & TAG_FLAGS_INVERTED) old = !old;
+    new = old;
+  }
+  *result = old | new<<1;
+  return NULL;
+}
+
+static _kernel_oserror *cx24430_modify_config(struct bitdef bit, int flags, int *result)
+{
+  bool old, new;
+  unsigned int pinbit = 1u << bit.num;
+
+  old = CXPLLREG(CONFIG0) & pinbit;
+  if (bit.flags & TAG_FLAGS_INVERTED) old = !old;
+  new = old;
+  *result = old | new<<1;
+  return NULL;
+}
+
+static _kernel_oserror *cx24430_modify(struct bitdef bit, int flags, int *result)
+{
+  switch (bit.port)
+  {
+    case 0: return cx24430_modify_pio(bit, flags, result);
+    case 1: return cx24430_modify_config(bit, flags, result);
+    default: *result = 0; return NULL;
+  }
+}
+
 static _kernel_oserror *modify_bit(int flags, const char *name, int *result)
 {
   _kernel_oserror *err;
   struct bitdef bit;
-  unsigned int mask=0, toggle=0;
-  unsigned int value;
 
   err=tag_get(&bit, name);
   if(err)
     return err;
 
-  if(bit.flags & TAG_FLAGS_OUTPUT)
-  {
-    mask=flags&PORTMAN_FLAG_CLEAR?1:0;
-    toggle=flags&PORTMAN_FLAG_TOGGLE?1:0;
-    if((flags & PORTMAN_FLAG_CLEAR) && (bit.flags & TAG_FLAGS_INVERTED))
-      toggle^=1;
-  }
-  value=modify_clines(~(mask<<bit.num), toggle<<bit.num) >> bit.num;
-  *result=(value&1) | (((value&!mask)^toggle)<<1);
-  return NULL;
+  if (platform == CX24430)
+      return cx24430_modify(bit, flags, result);
+  else
+      return arm7500fe_modify(bit, flags, result);
+
 }
 
 /**** Callback function **************************************************/
@@ -169,7 +257,19 @@ module_initialise(CMHG_CONST char *cmd_tail, int podule_base, void *pw)
   _kernel_swi_regs regs;
   _kernel_oserror* e = 0;
 
-  IOMD_CLINES=clines_softcopy;
+  if (!_swix(PCI_FindByID, _INR(0,4), 0x14F1, 0x4430, -1, 0, -1))
+  {
+    platform = CX24430;
+    e = _swix(OS_Memory, _INR(0,2)|_OUT(3), 13, GPIO_REG_BASE, 0x10000,
+                                            &CXGPIO_Base);
+    if (e) return e;
+    e = _swix(OS_Memory, _INR(0,2)|_OUT(3), 13, PLL_REG_BASE, 0x10000,
+                                            &CXPLL_Base);
+    if (e) return e;
+  }
+
+  if (platform == ARM7500FE)
+   IOMD_CLINES=clines_softcopy;
 
 #ifdef STANDALONE
   resfiles_init();
