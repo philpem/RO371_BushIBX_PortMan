@@ -1,4 +1,4 @@
-| Copyright 1999 Element 14 Ltd
+| Copyright 2001 Pace Micro Technology plc
 |
 | Licensed under the Apache License, Version 2.0 (the "License");
 | you may not use this file except in compliance with the License.
@@ -13,5 +13,4 @@
 | limitations under the License.
 |
 Dir <Obey$Dir>
-amu_machine clean
-stripdepnd
+amu_machine ram
