@@ -19,7 +19,7 @@ LED_Power:     93:0:2
 LED_Red:       94:0:2
 LED_Green:     95:0:2
 NTSC:           6:1:0
-256MB:          7:1:0
+256MB:          7:1:1
 Button_Down:   91:2:0
 Button_Back:   91:3:0
 Button_Menu:   92:2:0
