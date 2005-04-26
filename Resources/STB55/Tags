@@ -10,6 +10,7 @@ NORFlash_WP:   53:0:3
 Flash_Ready:   54:0:0
 Modulator:     67:0:2
 USB_Error:     73:0:1
+SmartCard_5V:  74:0:2
 VHF_Channel:   76:0:3
 Panel_SW2:     89:0:0
 Panel_SW1:     90:0:0
