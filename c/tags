@@ -173,7 +173,8 @@ tag_get(struct bitdef *result, const char *name)
 
 void tag_foreach(void (*fn)(const char *name, struct bitdef bit))
 {
-  for (tag_pair *t = head_tag; t; t = t->next)
+  tag_pair *t;
+  for (t = head_tag; t; t = t->next)
     fn(t->name, t->result);
 }
 
